@@ -9,6 +9,11 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type AuthData struct {
+	Login string
+	Data  string
+}
+
 type User struct {
 	Id            int64
 	Login         string
