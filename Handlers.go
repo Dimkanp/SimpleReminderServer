@@ -57,7 +57,7 @@ func authorizeUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user.Notifications, _ = getNotificationsByUserId(user.Id)
 
-	fmt.Println(user)
+	//fmt.Println(user)
 
 	writeBodyJson(w,user)
 }
@@ -289,7 +289,7 @@ func closeDatabaseConnection(){
 
 func getNotificationsByUserId(userId int64) ([]Notification, error) {
 	db, err := getDB()
-	var notifications []Notification
+	notifications := []Notification{}
 	if err != nil {
 		fmt.Println(err)
 		return notifications, err
