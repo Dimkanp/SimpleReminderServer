@@ -46,5 +46,6 @@ func main() {
 		isExit <- true
 	}()
 	<-isExit
+	closeDatabaseConnection()
 	fmt.Println("Server stopped!")
 }
