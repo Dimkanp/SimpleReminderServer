@@ -57,6 +57,8 @@ func authorizeUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user.Notifications, _ = getNotificationsByUserId(user.Id)
 
+	fmt.Println(user)
+
 	writeBodyJson(w,user)
 }
 
@@ -230,6 +232,7 @@ func editNotification(w http.ResponseWriter, r *http.Request) {
 
 func getDB() (*sql.DB, error) {
 	if _, err := os.Stat(fmt.Sprint("./", dbName)); os.IsNotExist(err){
+		fmt.Println("Database file ",dbName," not found.")
 		initDatabase(dbName)
 	}
 
@@ -250,6 +253,7 @@ func initDatabase(dbName string){
 	if err != nil {
 		log.Fatal(err)
 	}
+	fmt.Println("Creating a new database file.")
 
 	userSqlStmt := `
 	create table "User" (id integer not null primary key, 
@@ -274,6 +278,7 @@ func initDatabase(dbName string){
 		log.Printf("%q: %s\n", err, userSqlStmt)
 		return
 	}
+	fmt.Println("New database file successfully created.")
 }
 
 func closeDatabaseConnection(){
@@ -284,9 +289,10 @@ func closeDatabaseConnection(){
 
 func getNotificationsByUserId(userId int64) ([]Notification, error) {
 	db, err := getDB()
+	var notifications []Notification
 	if err != nil {
 		fmt.Println(err)
-		return nil, err
+		return notifications, err
 	}
 
 	notificationsSelectSqlStatement := `
@@ -299,7 +305,6 @@ func getNotificationsByUserId(userId int64) ([]Notification, error) {
 
 	rows, err := db.Query(notificationsSelectSqlStatement, userId)
 	defer rows.Close()
-	var notifications []Notification
 	for rows.Next(){
 		notification := new(Notification)
 		err = rows.Scan(
@@ -314,7 +319,7 @@ func getNotificationsByUserId(userId int64) ([]Notification, error) {
 	}
 	if err != nil {
 		fmt.Println(err)
-		return nil, err
+		return notifications, err
 	}
 	return notifications, err
 }

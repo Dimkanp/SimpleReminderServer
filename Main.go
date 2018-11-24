@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net/http"
 
-	//	"time"
-
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -42,6 +40,7 @@ func main() {
 
 	isExit := make(chan bool, 1)
 	go func() {
+		fmt.Println("Server started successfully.")
 		fmt.Println(http.ListenAndServe(":8080", nil))
 		isExit <- true
 	}()
