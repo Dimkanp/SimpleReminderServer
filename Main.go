@@ -10,14 +10,14 @@ import (
 )
 
 type AuthData struct {
-	Login string
-	Data  string
+	Login    string
+	Password string
 }
 
 type User struct {
 	Id            int64
 	Login         string
-	Password      string
+	PasswordHash  string
 	Email         string
 	Surname       string
 	Name          string
@@ -26,7 +26,7 @@ type User struct {
 }
 
 type Notification struct {
-	Id               int
+	Id               int64
 	UnixSelectedDate int64
 	ReminderText     string
 	UserId           int
