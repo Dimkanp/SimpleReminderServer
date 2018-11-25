@@ -57,8 +57,6 @@ func authorizeUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user.Notifications, _ = getNotificationsByUserId(user.Id)
 
-	//fmt.Println(user)
-
 	writeBodyJson(w,user)
 }
 
@@ -269,7 +267,8 @@ func initDatabase(dbName string){
 	create table "Notification" (id integer not null primary key,
 								 unixSelectedDate integer,
 								 reminderText text,
-								 userId integer);
+								 userId integer,
+								 FOREIGN KEY(userId) REFERENCES "User"(id));
 	delete from "Notification";`
 
 	_, err = database.Exec(userSqlStmt)
