@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -12,37 +11,44 @@ import (
 var database * sql.DB
 var dbName = "simple-reminder-database.db"
 
-func authorizeUser(w http.ResponseWriter, r *http.Request) {
+func authorizeUser(responseWriter http.ResponseWriter, request *http.Request) {
 	var authData AuthData
-	err := readBodyJson(r.Body, &authData)
+	err := readBodyJson(request.Body, &authData)
 	if err != nil {
-		badRequest(w, "Can't parse data.")
+		fmt.Println("authorizeUser | Parsing input data error:", err)
+		badRequest(responseWriter, "Can't parse data.")
 		return
 	}
 
 	db, err := getDB()
 	if err != nil {
-		log.Fatal(err)
-		internalError(w,"Can't connect to database.")
+		fmt.Println("authorizeUser | Getting database connection error: ", err)
+		internalError(responseWriter,"Can't connect to database.")
 		return
 	}
 
 	userSelectSqlStmt := `
-	select id,
+	SELECT id,
 	       login,
 		   password,
 		   email,
 		   surname,
 		   name,
 		   lastLogin
-    from "User"
-	where login = '%s' and password = '%s';`
+    FROM "User"
+	WHERE login = '%s' AND password = '%s';`
 
 	var user User
 	tmp := fmt.Sprintf(userSelectSqlStmt,
 					   authData.Login,
 					   authData.Password)
-	err = db.QueryRow(tmp).Scan(
+	row := db.QueryRow(tmp)
+	if row == nil {
+		fmt.Println("authorizeUser | User (login: '",authData.Login,"', password: '",authData.Password,") doesn't exist.")
+		badRequest(responseWriter,"Invalid pair of login and password.")
+		return
+	}
+	err = row.Scan(
 			&user.Id,
 			&user.Login,
 			&user.PasswordHash,
@@ -51,51 +57,55 @@ func authorizeUser(w http.ResponseWriter, r *http.Request) {
 			&user.Name,
 			&user.LastLogin)
 	if err != nil {
-		fmt.Println(err)
-		internalError(w,"Can't execute sql query.")
+		fmt.Println("authorizeUser | Scanning QueryRow result error: ", err)
+		internalError(responseWriter,"Can't execute sql query.")
 		return
 	}
 	user.Notifications, _ = getNotificationsByUserId(user.Id)
 
-	writeBodyJson(w,user)
+	err = writeBodyJson(responseWriter,user)
+	if err != nil{
+		fmt.Println("authorizeUser | Sending response error: ", err)
+	}
 }
 
-func addUser(w http.ResponseWriter, r *http.Request) {
+func addUser(responseWriter http.ResponseWriter, request *http.Request) {
 	var user User
-	err := readBodyJson(r.Body, &user)
+	err := readBodyJson(request.Body, &user)
 	if err != nil {
-		badRequest(w, "Can't parse data.")
+		fmt.Println("addUser | Parsing input data error: ", err)
+		badRequest(responseWriter, "Can't parse data.")
 		return
 	}
 
 	db, err := getDB()
 	if err != nil {
-		log.Fatal(err)
-		internalError(w,"Can't connect to database.")
+		fmt.Println("addUser | Getting database connection error: ", err)
+		internalError(responseWriter,"Can't connect to database.")
 		return
 	}
 
 	//Checking login for use by someone else
-	stmt, err := db.Prepare(`select id from "User" where login = ?;`)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer stmt.Close()
-	err = stmt.QueryRow(user.Login).Scan(&user.Id)
-	if err == nil {
-		badRequest(w,"User login already exist.")
+	userIdSelectSqlStmt := `
+	SELECT id 
+    FROM "User" 
+    WHERE login = '%s';`
+
+	row := db.QueryRow(fmt.Sprintf(userIdSelectSqlStmt, user.Login))
+	if row != nil {
+		fmt.Println("addUser | User login '", user.Login ,"' already exist.")
+		badRequest(responseWriter,"User login already exist.")
 		return
 	}
 
 	userAddSqlStmt := `
-	insert into "User" (login,
+	INSERT INTO "User" (login,
 						password,
 						email,
 						surname,
 						name,
 						lastLogin) 
-	values ('%s', '%s', '%s', '%s', '%s', %d);`
+	VALUES ('%s', '%s', '%s', '%s', '%s', %d);`
 	tmp := fmt.Sprintf(userAddSqlStmt,
 		user.Login,
 		user.PasswordHash,
@@ -103,86 +113,102 @@ func addUser(w http.ResponseWriter, r *http.Request) {
 		user.Surname,
 		user.Name,
 		user.LastLogin)
-	row, _ := db.Exec(tmp)
-	user.Id, err = row.LastInsertId()
+	result, _ := db.Exec(tmp)
+	user.Id, err = result.LastInsertId()
 	if err != nil {
-		fmt.Println(err)
-		internalError(w,"Can't execute sql query.")
+		fmt.Println("addUser | Executing sql statement error: ", err, "\n	SQL: '", tmp, "'")
+		internalError(responseWriter,"Can't execute sql query.")
 		return
 	}
-	writeBodyJson(w,fmt.Sprint(user.Id))
+	err = writeBodyJson(responseWriter,fmt.Sprint(user.Id))
+	if err != nil{
+		fmt.Println("addUser | Sending response error: ", err)
+	}
 }
 
-func getUserNotifications(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("userId")
+func getUserNotifications(responseWriter http.ResponseWriter, request *http.Request) {
+	id := request.URL.Query().Get("userId")
 	userId, err := strconv.ParseInt(id, 10, 8)
 	if err != nil {
-		badRequest(w, "Can't parse data.")
+		fmt.Println("getUserNotifications | Parsing input data error: ", err)
+		badRequest(responseWriter, "Can't parse data.")
 		return
 	}
 
-	notifications, _ := getNotificationsByUserId(userId)
+	notifications, err := getNotificationsByUserId(userId)
+	if err != nil{
+		internalError(responseWriter, "Can't get notifications from DataBase.")
+		return
+	}
 
-	writeBodyJson(w,notifications)
+	err = writeBodyJson(responseWriter,notifications)
+	if err != nil{
+		fmt.Println("getUserNotifications | Sending response error: ", err)
+	}
 }
 
-func addNotification(w http.ResponseWriter, r *http.Request) {
+func addNotification(responseWriter http.ResponseWriter, request *http.Request) {
 	var notification Notification
-	err := readBodyJson(r.Body, &notification)
+	err := readBodyJson(request.Body, &notification)
 	if err != nil {
-		badRequest(w, "Can't parse data.")
+		fmt.Println("addNotification | Parsing input data error: ", err)
+		badRequest(responseWriter, "Can't parse data.")
 		return
 	}
 
 	db, err := getDB()
 	if err != nil {
-		fmt.Println(err)
-		internalError(w,"Can't connect to database.")
+		fmt.Println("addNotification | Getting database connection error: ", err)
+		internalError(responseWriter,"Can't connect to database.")
 		return
 	}
 
-	userAddSqlStmt := `
-	insert into "Notification" (unixSelectedDate,
+	notificationAddSqlStmt := `
+	INSERT INTO "Notification" (unixSelectedDate,
 								reminderText,
 								userId) 
-	values (%d, '%s', %d);`
-	tmp := fmt.Sprintf(userAddSqlStmt,
+	VALUES (%d, '%s', %d);`
+	tmp := fmt.Sprintf(notificationAddSqlStmt,
 		notification.UnixSelectedDate,
 		notification.ReminderText,
 		notification.UserId)
 	row, _ := db.Exec(tmp)
 	notification.Id, err = row.LastInsertId()
 	if err != nil {
-		fmt.Println(err)
-		internalError(w,"Can't execute sql query.")
+		fmt.Println("addNotification | Executing sql statement error: ", err, "\n	SQL: '", tmp, "'")
+		internalError(responseWriter,"Can't execute sql query.")
 		return
 	}
-	writeBodyJson(w,fmt.Sprint(notification.Id))
+	err = writeBodyJson(responseWriter,fmt.Sprint(notification.Id))
+	if err != nil{
+		fmt.Println("addNotification | Sending response error: ", err)
+	}
 }
 
 func deleteNotification(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.URL.Query().Get("notificationId"))
 	if err != nil {
-		badRequest(w, err.Error())
+		fmt.Println("deleteNotification | Parsing input data error: ", err)
+		badRequest(w, "Can't parse data.")
 		return
 	}
 
 	db, err := getDB()
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("deleteNotification | Getting database connection error: ", err)
 		internalError(w,"Can't connect to database.")
 		return
 	}
 
-	sqlStatement := `
-	delete from "Notification"
-	where id = %d;`
+	notificationDeleteSqlStmt := `
+	DELETE FROM "Notification"
+	WHERE id = %d;`
 	var rowsAffected int64
-	tmp := fmt.Sprintf(sqlStatement, id)
+	tmp := fmt.Sprintf(notificationDeleteSqlStmt, id)
 	row, _ := db.Exec(tmp)
 	rowsAffected, err = row.RowsAffected()
 	if err != nil || rowsAffected == 0 {
-		fmt.Println(err)
+		fmt.Println("deleteNotification | Executing sql statement error: ", err, "\n	SQL: '", tmp, "'")
 		internalError(w,"Can't execute sql query.")
 		return
 	}
@@ -194,25 +220,26 @@ func editNotification(w http.ResponseWriter, r *http.Request) {
 	var notification Notification
 	err := readBodyJson(r.Body, &notification)
 	if err != nil {
+		fmt.Println("editNotification | Parsing input data error: ", err)
 		badRequest(w, "Can't parse data.")
 		return
 	}
 
 	db, err := getDB()
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("editNotification | Getting database connection error: ", err)
 		internalError(w,"Can't connect to database.")
 		return
 	}
 
-	sqlStatement := `
-	update "Notification"
-	set unixSelectedDate = %d,
+	notificationEditSqlStmt := `
+	UPDATE "Notification"
+	SET unixSelectedDate = %d,
 		reminderText = '%s',
 		userId = %d
-	where id = %d;`
+	WHERE id = %d;`
 	var rowsAffected int64
-	tmp := fmt.Sprintf(sqlStatement,
+	tmp := fmt.Sprintf(notificationEditSqlStmt,
 		notification.UnixSelectedDate,
 		notification.ReminderText,
 		notification.UserId,
@@ -220,12 +247,50 @@ func editNotification(w http.ResponseWriter, r *http.Request) {
 	row, _ := db.Exec(tmp)
 	rowsAffected, err = row.RowsAffected()
 	if err != nil || rowsAffected == 0 {
-		fmt.Println(err)
+		fmt.Println("editNotification | Executing sql statement error: ", err, "\n	SQL: '", tmp, "'")
 		internalError(w,"Can't execute sql query.")
 		return
 	}
 
 	writeBody(w,"")
+}
+
+func getNotificationsByUserId(userId int64) ([]Notification, error) {
+	notifications := []Notification{}
+	db, err := getDB()
+	if err != nil {
+		fmt.Println("getNotificationsByUserId | Getting database connection error: ", err)
+		return notifications, err
+	}
+
+	notificationsSelectSqlStmt := `
+	SELECT id, 
+           unixSelectedDate,
+           reminderText,
+           userId
+	FROM "Notification" 
+	WHERE userId = ?;`
+
+	rows, err := db.Query(notificationsSelectSqlStmt, userId)
+	defer rows.Close()
+	for rows.Next(){
+		notification := new(Notification)
+		err = rows.Scan(
+			&notification.Id,
+			&notification.UnixSelectedDate,
+			&notification.ReminderText,
+			&notification.UserId)
+		if err != nil {
+			fmt.Println("getNotificationsByUserId | Scanning notification error: ", err)
+		} else {
+			notifications = append(notifications, *notification)
+		}
+	}
+	if err != nil {
+		fmt.Println("getNotificationsByUserId | Getting database connection error: ", err)
+		return notifications, err
+	}
+	return notifications, err
 }
 
 func getDB() (*sql.DB, error) {
@@ -238,7 +303,7 @@ func getDB() (*sql.DB, error) {
 		var err error
 		database, err = sql.Open("sqlite3", fmt.Sprint("./", dbName))
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println("Open connection with database error: ", err)
 			return nil, err
 		}
 	}
@@ -246,79 +311,58 @@ func getDB() (*sql.DB, error) {
 }
 
 func initDatabase(dbName string){
+	fmt.Println("Creating a new database file.")
 	var err error
 	database, err = sql.Open("sqlite3", fmt.Sprint("./", dbName))
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Creating database file error: ", err)
+		return
 	}
-	fmt.Println("Creating a new database file.")
 
-	userSqlStmt := `
-	create table "User" (id integer not null primary key, 
-						 login text,
-						 password text,
-						 email text,
-						 surname text,
-						 name text,
-						 lastLogin integer);
-	delete from "User";`
-
-	notificationSqlStmt := `
-	create table "Notification" (id integer not null primary key,
-								 unixSelectedDate integer,
-								 reminderText text,
-								 userId integer,
-								 FOREIGN KEY(userId) REFERENCES "User"(id));
-	delete from "Notification";`
-
-	_, err = database.Exec(userSqlStmt)
-	_, err = database.Exec(notificationSqlStmt)
+	creatingUserTableSqlStmt := `
+	CREATE TABLE "User" (id INTEGER NOT NULL PRIMARY KEY, 
+						 login TEXT,
+						 password TEXT,
+						 email TEXT,
+						 surname TEXT,
+						 name TEXT,
+						 lastLogin INTEGER);
+	DELETE FROM "User";`
+	_, err = database.Exec(creatingUserTableSqlStmt)
 	if err != nil {
-		log.Printf("%q: %s\n", err, userSqlStmt)
+		fmt.Println("Executing sql statement error: ", err, "\n	SQL: '", creatingUserTableSqlStmt, "'")
+		deleteDatabaseFile(dbName)
+		return
+	}
+
+	creatingNotificationTableSqlStmt := `
+	CREATE TABLE "Notification" (id INTEGER NOT NULL PRIMARY KEY,
+								 unixSelectedDate INTEGER,
+								 reminderText TEXT,
+								 userId INTEGER,
+								 FOREIGN KEY(userId) REFERENCES "User"(id));
+	DELETE FROM "Notification";`
+	_, err = database.Exec(creatingNotificationTableSqlStmt)
+	if err != nil {
+		fmt.Println("Executing sql statement error: ", err, "\n	SQL: '", creatingNotificationTableSqlStmt, "'")
+		deleteDatabaseFile(dbName)
 		return
 	}
 	fmt.Println("New database file successfully created.")
+}
+
+func deleteDatabaseFile(dbName string){
+	fmt.Println("Deleting database file '", dbName, "'")
+	var err = os.Remove(fmt.Sprint("./", dbName))
+	if err != nil {
+		fmt.Println("Deleting database file error: ", err)
+		return
+	}
+	fmt.Println("Database file has been deleted.")
 }
 
 func closeDatabaseConnection(){
 	if database != nil{
 		database.Close()
 	}
-}
-
-func getNotificationsByUserId(userId int64) ([]Notification, error) {
-	db, err := getDB()
-	notifications := []Notification{}
-	if err != nil {
-		fmt.Println(err)
-		return notifications, err
-	}
-
-	notificationsSelectSqlStatement := `
-	select id, 
-           unixSelectedDate,
-           reminderText,
-           userId
-	from "Notification" 
-	where userId = ?;`
-
-	rows, err := db.Query(notificationsSelectSqlStatement, userId)
-	defer rows.Close()
-	for rows.Next(){
-		notification := new(Notification)
-		err = rows.Scan(
-			&notification.Id,
-			&notification.UnixSelectedDate,
-			&notification.ReminderText,
-			&notification.UserId)
-		if err != nil {
-			fmt.Println(err)
-		}
-		notifications = append(notifications, *notification)
-	}
-	if err != nil {
-		fmt.Println(err)
-		return notifications, err
-	}
-	return notifications, err
 }
