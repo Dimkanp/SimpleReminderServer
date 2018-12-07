@@ -17,10 +17,6 @@ func internalError(resp http.ResponseWriter, message string) {
 	http.Error(resp, message, http.StatusInternalServerError)
 }
 
-func forbiddenRequest(resp http.ResponseWriter, message string) {
-	http.Error(resp, message, http.StatusForbidden)
-}
-
 func readBody(reader io.Reader) string {
 	bytes, err := ioutil.ReadAll(reader)
 	if err != nil || len(bytes) == 0 {

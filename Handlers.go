@@ -44,7 +44,7 @@ func authorizeUser(responseWriter http.ResponseWriter, request *http.Request) {
 					   authData.Password)
 	row := db.QueryRow(tmp)
 	if row == nil {
-		fmt.Println("authorizeUser | User (login: '",authData.Login,"', password: *** doesn't exist.")
+		fmt.Println("authorizeUser | User (login: '",authData.Login,"', password: ***) doesn't exist.")
 		badRequest(responseWriter,"Invalid pair of login and password.")
 		return
 	}
